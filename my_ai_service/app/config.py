@@ -1,13 +1,13 @@
 from pathlib import Path
 
-# 프로젝트 루트 디렉토리
-BASE_DIR = Path(__file__).parent.parent
+# 현재 app 디렉토리
+APP_DIR = Path(__file__).parent
 
 # ==========================================
-# [설정] 모델 경로
+# [설정] 모델 경로 (weights가 app 폴더 안에 있음)
 # ==========================================
-DET_MODEL_PATH = BASE_DIR / "weights" / "detect" / "best.pt"  # 객체 탐지 모델
-CLS_MODEL_PATH = BASE_DIR / "weights" / "classify" / "best.pt"  # 분류 모델
+DET_MODEL_PATH = APP_DIR / "weights" / "det_best.pt"  # 객체 탐지 모델
+CLS_MODEL_PATH = APP_DIR / "weights" / "cls_best.pt"  # 분류 모델
 
 # ==========================================
 # [설정] YOLO 클래스 ID (모델 학습 시 설정한 순서와 일치해야 함)
