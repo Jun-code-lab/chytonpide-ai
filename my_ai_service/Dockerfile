@@ -1,5 +1,5 @@
 # Stage 1: 기본 이미지
-FROM python:3.11-slim
+FROM python:3.10.19-slim
 
 WORKDIR /app
 
@@ -9,15 +9,15 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 패키지 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 애플리케이션 코드 복사
+# 애플리케이션 코드 복사 (weights는 app 폴더 안에 있음)
 COPY app/ /app/app/
-COPY weights/ /app/weights/
 
 # 포트 노출
 EXPOSE 8000
