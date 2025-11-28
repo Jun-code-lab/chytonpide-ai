@@ -4,7 +4,7 @@ import io
 import logging
 from pathlib import Path
 from PIL import Image, ImageOps
-from ultralytics import YOLO
+from ultralytics import YOLO, FastSAM
 from datetime import datetime
 
 from app.config import (
@@ -24,14 +24,146 @@ class BasilAnalyzer:
     def __init__(self):
         logger.info("🤖 AI 모델 로딩 시작...")
 
-        # 두 개의 모델을 미리 로딩 (메모리에 상주)
+        # 세 개의 모델을 미리 로딩 (메모리에 상주)
         try:
             self.det_model = YOLO(str(DET_MODEL_PATH))  # 탐지용
             self.cls_model = YOLO(str(CLS_MODEL_PATH))  # 분류용
+
+            logger.info("🌿 SAM2 (FastSAM) 모델 로딩 중...")
+            sam_model_path = Path(__file__).parent / "weights" / "FastSAM-x.pt"
+            self.sam_model = FastSAM(str(sam_model_path))
+
             logger.info("✅ 모델 로딩 완료!")
         except Exception as e:
             logger.error(f"❌ 모델 로딩 실패: {e}")
             raise
+
+    def _separate_overlapping_leaves(self, mask):
+        """겹친 잎 분리 (Watershed)"""
+        # 거리 변환
+        dist_transform = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+
+        # 로컬 최대값 찾기 (각 잎의 중심)
+        _, sure_fg = cv2.threshold(dist_transform, 0.5 * dist_transform.max(), 255, 0)
+        sure_fg = np.uint8(sure_fg)
+
+        # 확실한 배경 영역
+        kernel = np.ones((3, 3), np.uint8)
+        sure_bg = cv2.dilate(mask, kernel, iterations=3)
+
+        # 불확실한 영역
+        unknown = cv2.subtract(sure_bg, sure_fg)
+
+        # 마커 생성
+        _, markers = cv2.connectedComponents(sure_fg)
+        markers = markers + 1
+        markers[unknown == 255] = 0
+
+        # Watershed 적용
+        mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+        markers = cv2.watershed(mask_bgr, markers)
+
+        return markers
+
+    def _count_leaves(self, basil_crop_bgr, mm_per_pixel):
+        """SAM2 + Watershed를 이용한 잎 개수 세기"""
+        try:
+            logger.info("🔍 SAM2 세그멘테이션 진행 중...")
+            results = self.sam_model(basil_crop_bgr)
+
+            basil_hsv = cv2.cvtColor(basil_crop_bgr, cv2.COLOR_BGR2HSV)
+            lower_green = np.array(GREEN_HSV_LOWER, dtype=np.uint8)
+            upper_green = np.array(GREEN_HSV_UPPER, dtype=np.uint8)
+            green_mask = cv2.inRange(basil_hsv, lower_green, upper_green)
+
+            leaf_count = 0
+            leaf_areas = []
+            min_leaf_pixels = 100
+
+            def get_color(idx):
+                np.random.seed(idx * 10)
+                return tuple(map(int, np.random.randint(0, 255, 3)))
+
+            if results[0].masks is not None:
+                masks = results[0].masks.data.cpu().numpy()
+                logger.info(f"📊 SAM이 찾은 총 마스크 개수: {len(masks)}개")
+
+                for i, mask in enumerate(masks):
+                    mask_uint8 = (mask * 255).astype(np.uint8)
+
+                    if mask_uint8.shape != green_mask.shape:
+                        mask_uint8 = cv2.resize(
+                            mask_uint8,
+                            (green_mask.shape[1], green_mask.shape[0]),
+                            interpolation=cv2.INTER_NEAREST,
+                        )
+
+                    mask_pixels = np.sum(mask_uint8 > 127)
+                    if mask_pixels < min_leaf_pixels:
+                        continue
+
+                    overlap = np.sum((mask_uint8 > 127) & (green_mask > 0))
+                    overlap_ratio = (overlap / mask_pixels) if mask_pixels > 0 else 0
+
+                    # 잎으로 판단된 마스크 (초록색 비율 50% 이상)
+                    if overlap_ratio > 0.5:
+                        # Watershed로 겹친 잎 분리 시도
+                        markers = self._separate_overlapping_leaves(mask_uint8)
+
+                        # 분리된 각 영역 처리 (0=경계, 1=배경, 2+=객체)
+                        unique_labels = np.unique(markers)
+                        separated_count = 0
+
+                        for label in unique_labels:
+                            if label <= 1:  # 배경, 경계 스킵
+                                continue
+
+                            # 해당 라벨의 마스크
+                            label_mask = (markers == label).astype(np.uint8) * 255
+                            label_pixels = np.sum(label_mask > 0)
+
+                            # 너무 작으면 스킵
+                            if label_pixels < min_leaf_pixels:
+                                continue
+
+                            # 초록 영역과 겹치는 부분
+                            label_overlap = np.sum((label_mask > 0) & (green_mask > 0))
+                            label_ratio = label_overlap / label_pixels if label_pixels > 0 else 0
+
+                            if label_ratio > 0.4:  # 40% 이상 초록이면 잎으로 카운트
+                                leaf_count += 1
+                                separated_count += 1
+
+                                leaf_area_mm2 = label_overlap * (mm_per_pixel ** 2)
+                                leaf_areas.append(
+                                    {
+                                        "leaf_id": leaf_count,
+                                        "area_mm2": round(leaf_area_mm2, 2),
+                                        "area_cm2": round(leaf_area_mm2 / 100, 2),
+                                        "pixels": int(label_overlap),
+                                        "overlap_ratio": round(label_ratio * 100, 1),
+                                    }
+                                )
+
+                        logger.info(f"  ✅ 마스크 #{i} → Watershed로 {separated_count}개 잎 분리됨")
+                    else:
+                        logger.info(f"  ❌ 마스크 #{i} 제외 (초록비율: {overlap_ratio*100:.1f}%)")
+
+            logger.info(f"🌿 잎 개수: {leaf_count}개")
+
+            return {
+                "leaf_count": leaf_count,
+                "leaf_details": leaf_areas,
+                "average_leaf_area_mm2": round(
+                    sum(l["area_mm2"] for l in leaf_areas) / leaf_count, 2
+                )
+                if leaf_count > 0
+                else 0,
+            }
+
+        except Exception as e:
+            logger.error(f"❌ 잎 개수 세기 중 오류: {e}")
+            return {"leaf_count": 0, "leaf_details": [], "average_leaf_area_mm2": 0}
 
     def _calculate_pla(self, basil_crop_bgr, mm_per_pixel):
         """
@@ -213,7 +345,13 @@ class BasilAnalyzer:
                 }
 
             # -------------------------------------------------
-            # Step 4: 분류 (Healthy vs Unhealthy)
+            # Step 4: 잎 개수 세기 (FastSAM + Watershed)
+            # -------------------------------------------------
+            logger.info("🌿 잎 개수 분석...")
+            leaf_result = self._count_leaves(basil_crop_bgr, mm_per_pixel)
+
+            # -------------------------------------------------
+            # Step 5: 분류 (Healthy vs Unhealthy)
             # -------------------------------------------------
             logger.info("🏥 식물 상태 분류...")
             basil_crop_pil = Image.fromarray(
@@ -229,7 +367,7 @@ class BasilAnalyzer:
             logger.info(f"분류 결과: {class_name} ({confidence:.2f}%)")
 
             # -------------------------------------------------
-            # Step 5: 최종 결과 생성
+            # Step 6: 최종 결과 생성
             # -------------------------------------------------
             return {
                 "status": "success",
@@ -239,6 +377,9 @@ class BasilAnalyzer:
                     "pla_mm2": pla_result["pla_mm2"],
                     "pla_cm2": pla_result["pla_cm2"],
                     "green_pixels": pla_result["green_pixels"],
+                    "leaf_count": leaf_result["leaf_count"],
+                    "average_leaf_area_mm2": leaf_result["average_leaf_area_mm2"],
+                    "leaf_details": leaf_result["leaf_details"],
                     "message": "분석이 정상적으로 완료되었습니다.",
                 },
             }
@@ -247,7 +388,7 @@ class BasilAnalyzer:
             logger.error(f"❌ 처리 중 오류: {e}", exc_info=True)
             return {
                 "status": "error",
-                "message": f"처리 중 오류가 발생했습니다: {str(e)}",
+                "message": f"처리 중 오류가 발생했습니다: {str(e)}",	
             }
 
 

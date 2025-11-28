@@ -8,6 +8,7 @@ APP_DIR = Path(__file__).parent
 # ==========================================
 DET_MODEL_PATH = APP_DIR / "weights" / "det_best.pt"  # 객체 탐지 모델
 CLS_MODEL_PATH = APP_DIR / "weights" / "cls_best.pt"  # 분류 모델
+SAM_MODEL_PATH = APP_DIR / "weights" / "FastSAM-s.pt"  # 세그멘테이션 모델 (FastSAM)
 
 # ==========================================
 # [설정] YOLO 클래스 ID (모델 학습 시 설정한 순서와 일치해야 함)
