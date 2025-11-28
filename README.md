@@ -1,4 +1,4 @@
-# 🌱 Chytonpide AI - Basil Health Analyzer API v1.0.0
+# 🌱 Chytonpide AI - Basil Health Analyzer API v1.2.0
 
 **바질 식물의 건강 상태를 분석하고 엽면적(PLA)을 계산하는 AI 서비스**
 
