@@ -178,6 +178,7 @@ area_mm2 = green_pixel_count * (mm_per_pixel ** 2)
 실제 서버통신 및 cpu 환경에서 
 
 약 10~15초 걸림
+
 ---
 
 ## 🚀 설치 & 실행
@@ -215,7 +216,7 @@ curl -X POST "http://localhost:8000/analyze" \
     "pla_mm2": 2500.45,
     "pla_cm2": 25.00,
     "leaf_count": 12,
-    "growth_stage": "Mature"
+    "growth_stage": "ADULT"
   }
 }
 ```
@@ -226,17 +227,8 @@ curl -X POST "http://localhost:8000/analyze" \
 - `pla_mm2`: 엽면적 (제곱밀리미터)
 - `pla_cm2`: 엽면적 (제곱센티미터)
 - `leaf_count`: 잎 개수
-- `growth_stage`: 성장 단계 (Seedling/Vegetative/Mature/Full Growth)
+- `growth_stage`: 성장 단계 (Sprout/Middle/Adult)
 
 ---
 
-## 📚 추가 문서
-
-- [API 상세](my_ai_service/README.md)
-- [아키텍처](my_ai_service/ARCHITECTURE.md)
-- [배포 가이드](my_ai_service/SYSTEM_OVERVIEW.md)
-- [변경 기록](CHANGELOG.md)
-
----
-
-**최종 수정**: 2025-11-29
+**최종 수정**: 2025-11-30
