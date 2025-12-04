@@ -20,7 +20,10 @@ app = FastAPI(
 # CORS 설정 (프론트엔드 접근 허용)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 실제 배포 시 특정 도메인으로 제한
+    allow_origins=[
+    "http://chytonpide.azurewebsites.net",
+    "https://chytonpide.azurewebsites.net",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
